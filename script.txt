@@ -1,8 +1,8 @@
 -- CONFIGURATION
-local TARGET_USERNAME = "zdenda3030"
-local RISE_SPEED = 2
-local UNDER_OFFSET = 3
-local ITEM_NAME = "[WALLET]"
+local TARGET_USERNAME = "zdenda3030" -- The target player's username
+local RISE_SPEED = 2 -- How fast to rise (studs per second)
+local UNDER_OFFSET = 3 -- How many studs below the target to stay
+local ITEM_NAME = "[WALLET]" -- The item to check for in TARGET's inventory
 
 -- Services
 local Players = game:GetService("Players")
@@ -10,83 +10,114 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 local UserInputService = game:GetService("UserInputService")
 
--- Wait for player
+-- Wait for local player
 repeat task.wait() until LocalPlayer and LocalPlayer.Character
-print("✅ Player loaded: " .. LocalPlayer.Name)
+print("✅ Local player loaded: " .. LocalPlayer.Name)
 
--- Find target
+-- Find target player
 local targetPlayer = nil
-for _, player in ipairs(Players:GetPlayers()) do
-    if player.Name:lower() == TARGET_USERNAME:lower() then
-        targetPlayer = player
-        break
+local function findTarget()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player.Name:lower() == TARGET_USERNAME:lower() then
+            return player
+        end
     end
+    return nil
 end
 
+targetPlayer = findTarget()
 if targetPlayer then
     print("✅ Target found: " .. targetPlayer.Name)
 else
-    print("❌ Target NOT found: " .. TARGET_USERNAME)
+    print("❌ Target NOT found: " .. TARGET_USERNAME .. " - waiting for them to join...")
 end
 
--- Simple item check function
-local function checkForWallet()
-    print("\n--- CHECKING FOR WALLET ---")
-    local found = false
+-- Function to check if TARGET has the item
+local function targetHasItem()
+    if not targetPlayer then 
+        targetPlayer = findTarget()
+        if not targetPlayer then return false end
+    end
     
-    -- Check Backpack
-    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    -- Check target's backpack
+    local backpack = targetPlayer:FindFirstChild("Backpack")
+    if backpack then
+        for _, item in ipairs(backpack:GetChildren()) do
+            if item.Name == ITEM_NAME then
+                print("✅ Target HAS " .. ITEM_NAME .. " in backpack!")
+                return true
+            end
+        end
+    end
+    
+    -- Check target's character for equipped items
+    if targetPlayer.Character then
+        for _, item in ipairs(targetPlayer.Character:GetChildren()) do
+            if item:IsA("Tool") and item.Name == ITEM_NAME then
+                print("✅ Target HAS " .. ITEM_NAME .. " equipped!")
+                return true
+            end
+        end
+    end
+    
+    return false
+end
+
+-- Function to check target's inventory and print debug info
+local function debugTargetInventory()
+    if not targetPlayer then
+        targetPlayer = findTarget()
+        if not targetPlayer then
+            print("❌ Target player not found!")
+            return
+        end
+    end
+    
+    print("\n=== TARGET INVENTORY DEBUG ===")
+    print("Target: " .. targetPlayer.Name)
+    
+    -- Check backpack
+    local backpack = targetPlayer:FindFirstChild("Backpack")
     if backpack then
         print("Backpack items:")
         for _, item in ipairs(backpack:GetChildren()) do
-            print("  - " .. item.Name)
-            if item.Name == ITEM_NAME then
-                print("  ✅ FOUND IN BACKPACK!")
-                found = true
-            end
+            local hasStar = (item.Name == ITEM_NAME) and " ⭐" or ""
+            print("  - " .. item.Name .. hasStar)
         end
     else
         print("No Backpack found")
     end
     
-    -- Check Character
-    if LocalPlayer.Character then
-        print("Character items:")
-        for _, item in ipairs(LocalPlayer.Character:GetChildren()) do
+    -- Check character
+    if targetPlayer.Character then
+        print("Equipped items:")
+        for _, item in ipairs(targetPlayer.Character:GetChildren()) do
             if item:IsA("Tool") then
-                print("  - " .. item.Name)
-                if item.Name == ITEM_NAME then
-                    print("  ✅ FOUND ON CHARACTER!")
-                    found = true
-                end
+                local hasStar = (item.Name == ITEM_NAME) and " ⭐" or ""
+                print("  - " .. item.Name .. hasStar)
             end
         end
     end
     
-    print("Wallet found: " .. tostring(found))
-    print("------------------------\n")
-    return found
+    print("==============================\n")
 end
 
--- Manual rising function
-local rising = false
-local connection = nil
+-- Rising variables
+local isRising = false
+local riseConnection = nil
 
 local function startRising()
-    if rising then 
-        print("Already rising")
-        return
-    end
+    if isRising then return end
     if not targetPlayer or not targetPlayer.Character then
-        print("Target not available")
+        print("❌ Target not available")
         return
     end
     
-    print("🔼 STARTING RISE")
-    rising = true
+    print("🔼 STARTING to rise under " .. targetPlayer.Name)
+    isRising = true
     
-    connection = RunService.Heartbeat:Connect(function()
-        if not rising then return end
+    riseConnection = RunService.Heartbeat:Connect(function()
+        if not isRising then return end
         if not targetPlayer or not targetPlayer.Character then return end
         if not LocalPlayer.Character then return end
         
@@ -94,9 +125,11 @@ local function startRising()
         local localRoot = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         
         if targetRoot and localRoot then
+            -- Target position is UNDER the target
             local targetY = targetRoot.Position.Y - UNDER_OFFSET
             local currentY = localRoot.Position.Y
             
+            -- Move up smoothly if below target
             if currentY < targetY then
                 local newY = currentY + (RISE_SPEED * 0.1)
                 if newY > targetY then newY = targetY end
@@ -107,20 +140,66 @@ local function startRising()
 end
 
 local function stopRising()
-    if not rising then return end
-    print("🔽 STOPPING RISE")
-    rising = false
-    if connection then
-        connection:Disconnect()
-        connection = nil
+    if not isRising then return end
+    print("🔽 STOPPING rise")
+    isRising = false
+    if riseConnection then
+        riseConnection:Disconnect()
+        riseConnection = nil
     end
 end
 
--- Key binds
+-- Monitor target's inventory
+local lastState = nil
+spawn(function()
+    print("🔍 Monitoring " .. TARGET_USERNAME .. "'s inventory for " .. ITEM_NAME)
+    
+    while true do
+        if targetPlayer then
+            local hasItem = targetHasItem()
+            
+            -- State changed
+            if hasItem ~= lastState then
+                if hasItem then
+                    print("🎯 Target GOT the " .. ITEM_NAME .. " - STOPPING rise")
+                    stopRising()
+                else
+                    print("🎯 Target LOST the " .. ITEM_NAME .. " - STARTING rise")
+                    startRising()
+                end
+                lastState = hasItem
+            end
+            
+            -- Print status every 5 seconds
+            if tick() % 5 < 0.1 then
+                local status = hasItem and "HAS 🔴" or "DOES NOT HAVE 🟢"
+                print("📊 Target " .. status .. " " .. ITEM_NAME .. " | Rising: " .. (isRising and "YES 🔼" or "NO 🔽"))
+            end
+        else
+            -- Try to find target again
+            targetPlayer = findTarget()
+            if targetPlayer then
+                print("✅ Target joined: " .. targetPlayer.Name)
+            end
+        end
+        
+        task.wait(1)
+    end
+end)
+
+-- Watch for target joining
+Players.PlayerAdded:Connect(function(player)
+    if player.Name:lower() == TARGET_USERNAME:lower() then
+        targetPlayer = player
+        print("✅ Target joined: " .. player.Name)
+    end
+end)
+
+-- Controls
 UserInputService.InputBegan:Connect(function(input)
     if input.KeyCode == Enum.KeyCode.I then
-        -- I = Check inventory
-        checkForWallet()
+        -- I = Debug target inventory
+        debugTargetInventory()
         
     elseif input.KeyCode == Enum.KeyCode.R then
         -- R = Start rising
@@ -132,7 +211,7 @@ UserInputService.InputBegan:Connect(function(input)
         
     elseif input.KeyCode == Enum.KeyCode.T then
         -- T = Toggle
-        if rising then
+        if isRising then
             stopRising()
         else
             startRising()
@@ -141,7 +220,7 @@ UserInputService.InputBegan:Connect(function(input)
     elseif input.KeyCode == Enum.KeyCode.H then
         -- H = Help
         print("\n=== CONTROLS ===")
-        print("I - Check for wallet")
+        print("I - Check target's inventory")
         print("R - Start rising")
         print("S - Stop rising")
         print("T - Toggle rise")
@@ -150,7 +229,7 @@ UserInputService.InputBegan:Connect(function(input)
     end
 end)
 
-print("\n✅ SIMPLE DEBUG SCRIPT LOADED")
-print("Target: " .. TARGET_USERNAME)
-print("Press H for help")
-print("Press I to check for wallet\n")
+print("\n✅ SCRIPT LOADED - Monitoring " .. TARGET_USERNAME)
+print("Logic: Rise when target DOES NOT have " .. ITEM_NAME)
+print("       Stop when target HAS " .. ITEM_NAME)
+print("Press H for controls\n")

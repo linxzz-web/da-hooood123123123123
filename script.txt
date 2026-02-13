@@ -1,13 +1,9 @@
 -- CONFIGURATION - EDIT THESE VALUES
-local TARGET_USERNAME = "zdenda3030" -- Put the target player's username here
+local TARGET_USERNAME = "zdenda3030" -- The target player's username
 local RISE_SPEED = 2 -- How fast to rise (studs per second)
-local CHECK_INTERVAL = 0.1 -- How often to check position (seconds)
 local UNDER_OFFSET = 3 -- How many studs below the target to stay
-
--- INVENTORY SETTINGS
-local ITEM_NAME = "[WALLET]" -- The item name to check for (exact name)
-local CHECK_FREQUENCY = 2 -- How often to check inventory (seconds)
-local DEBUG_MODE = true -- Shows debug messages in output
+local ITEM_NAME = "[WALLET]" -- The item name to check for
+local CHECK_FREQUENCY = 1 -- How often to check inventory (seconds)
 
 -- Services
 local Players = game:GetService("Players")
@@ -18,349 +14,120 @@ local LocalPlayer = Players.LocalPlayer
 local isUnder = false
 local targetPlayer = nil
 local heartbeatConnection = nil
-local inventoryCheckConnection = nil
-local isActive = false
 
--- Debug print function
-local function debugPrint(...)
-	if DEBUG_MODE then
-		print("[Under Script]", ...)
-	end
-end
+-- Wait for LocalPlayer
+repeat task.wait() until LocalPlayer and LocalPlayer.Character
 
 -- Function to find target player
 local function findTargetPlayer()
-	for _, player in ipairs(Players:GetPlayers()) do
-		if player.Name:lower() == TARGET_USERNAME:lower() then
-			return player
-		end
-	end
-	return nil
-end
-
--- Function to get character root part
-local function getRootPart(character)
-	return character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player.Name:lower() == TARGET_USERNAME:lower() then
+            return player
+        end
+    end
+    return nil
 end
 
 -- Function to check if item exists in inventory
 local function hasItem(itemName)
-	-- Check PlayerGui (common inventory location)
-	local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-	if playerGui then
-		-- Search through all GUI elements for the item
-		local function searchForItem(instance)
-			if instance:IsA("ImageLabel") or instance:IsA("TextLabel") or instance:IsA("Frame") then
-				if instance.Name == itemName then
-					return true
-				end
-				-- Check if any child has the item name
-				if instance:FindFirstChild(itemName) then
-					return true
-				end
-			end
-			-- Recursively search children
-			for _, child in ipairs(instance:GetChildren()) do
-				if searchForItem(child) then
-					return true
-				end
-			end
-			return false
-		end
-		
-		if searchForItem(playerGui) then
-			return true
-		end
-	end
-	
-	-- Check Backpack (tool inventory)
-	local backpack = LocalPlayer:FindFirstChild("Backpack")
-	if backpack then
-		for _, item in ipairs(backpack:GetChildren()) do
-			if item.Name == itemName then
-				return true
-			end
-		end
-	end
-	
-	-- Check StarterGear (if applicable)
-	local starterGear = LocalPlayer:FindFirstChild("StarterGear")
-	if starterGear then
-		for _, item in ipairs(starterGear:GetChildren()) do
-			if item.Name == itemName then
-				return true
-			end
-		end
-	end
-	
-	-- Check Character for equipped items
-	if LocalPlayer.Character then
-		for _, item in ipairs(LocalPlayer.Character:GetChildren()) do
-			if item.Name == itemName then
-				return true
-			end
-		end
-	end
-	
-	return false
+    -- Check Backpack
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if backpack then
+        for _, item in ipairs(backpack:GetChildren()) do
+            if item.Name == itemName then
+                return true
+            end
+        end
+    end
+    
+    -- Check Character for equipped items
+    if LocalPlayer.Character then
+        for _, item in ipairs(LocalPlayer.Character:GetChildren()) do
+            if item.Name == itemName then
+                return true
+            end
+        end
+    end
+    
+    return false
 end
 
 -- Function to smoothly move player under target
 local function moveUnderTarget()
-	if not targetPlayer or not targetPlayer.Character then return end
-	if not LocalPlayer.Character then return end
-	
-	local targetRoot = getRootPart(targetPlayer.Character)
-	local localRoot = getRootPart(LocalPlayer.Character)
-	
-	if not targetRoot or not localRoot then return end
-	
-	-- Calculate target position (directly below target)
-	local targetPosition = Vector3.new(
-		targetRoot.Position.X,
-		targetRoot.Position.Y - UNDER_OFFSET,
-		targetRoot.Position.Z
-	)
-	
-	-- Smoothly move towards target position
-	local currentPos = localRoot.Position
-	local newY = currentPos.Y + (RISE_SPEED * CHECK_INTERVAL)
-	
-	-- Stop if we've reached or passed the target height
-	if newY >= targetPosition.Y then
-		newY = targetPosition.Y
-	end
-	
-	-- Update position (only change Y coordinate)
-	localRoot.CFrame = CFrame.new(
-		currentPos.X,
-		newY,
-		currentPos.Z
-	)
+    if not targetPlayer or not targetPlayer.Character then return end
+    if not LocalPlayer.Character then return end
+    
+    local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart") or targetPlayer.Character:FindFirstChild("Torso")
+    local localRoot = LocalPlayer.Character:FindFirstChild("HumanoidRootPart") or LocalPlayer.Character:FindFirstChild("Torso")
+    
+    if not targetRoot or not localRoot then return end
+    
+    -- Calculate target position
+    local targetPosition = Vector3.new(
+        targetRoot.Position.X,
+        targetRoot.Position.Y - UNDER_OFFSET,
+        targetRoot.Position.Z
+    )
+    
+    -- Smooth movement
+    local currentPos = localRoot.Position
+    local newY = currentPos.Y + (RISE_SPEED * 0.1)
+    
+    if newY >= targetPosition.Y then
+        newY = targetPosition.Y
+    end
+    
+    localRoot.CFrame = CFrame.new(currentPos.X, newY, currentPos.Z)
 end
 
--- Function to start the under effect
+-- Function to start the effect
 local function startUnder()
-	if isUnder then 
-		return
-	end
-	
-	targetPlayer = findTargetPlayer()
-	if not targetPlayer then
-		debugPrint("Target player '" .. TARGET_USERNAME .. "' not found!")
-		return
-	end
-	
-	if not LocalPlayer.Character then
-		debugPrint("Local player has no character!")
-		return
-	end
-	
-	debugPrint("Starting under effect - [WALLET] not found!")
-	isUnder = true
-	
-	-- Start the smooth movement
-	heartbeatConnection = RunService.Heartbeat:Connect(function()
-		if isUnder and targetPlayer and targetPlayer.Character and LocalPlayer.Character then
-			moveUnderTarget()
-		end
-	end)
+    if isUnder then return end
+    
+    targetPlayer = findTargetPlayer()
+    if not targetPlayer then
+        print("Target player '" .. TARGET_USERNAME .. "' not found!")
+        return
+    end
+    
+    print("Starting under effect - " .. ITEM_NAME .. " not found!")
+    isUnder = true
+    
+    heartbeatConnection = RunService.Heartbeat:Connect(function()
+        if isUnder and targetPlayer and targetPlayer.Character and LocalPlayer.Character then
+            moveUnderTarget()
+        end
+    end)
 end
 
--- Function to stop the under effect
+-- Function to stop the effect
 local function stopUnder()
-	if isUnder then
-		debugPrint("Stopping under effect - [WALLET] found!")
-		isUnder = false
-	end
-	if heartbeatConnection then
-		heartbeatConnection:Disconnect()
-		heartbeatConnection = nil
-	end
+    if isUnder then
+        print("Stopping under effect - " .. ITEM_NAME .. " found!")
+        isUnder = false
+    end
+    if heartbeatConnection then
+        heartbeatConnection:Disconnect()
+        heartbeatConnection = nil
+    end
 end
 
--- Check inventory periodically
-local function checkInventory()
-	local hasWallet = hasItem(ITEM_NAME)
-	
-	if hasWallet and isUnder then
-		-- Has wallet and effect is active -> stop
-		stopUnder()
-	elseif not hasWallet and not isUnder then
-		-- Doesn't have wallet and effect not active -> start
-		startUnder()
-	end
-	
-	-- Debug output
-	if DEBUG_MODE then
-		local status = hasWallet and "HAS" or "DOES NOT HAVE"
-		local effect = isUnder and "ACTIVE" or "INACTIVE"
-		debugPrint("Inventory: " .. status .. " " .. ITEM_NAME .. " | Effect: " .. effect)
-	end
-end
-
--- Function to start inventory monitoring
-local function startInventoryMonitoring()
-	debugPrint("Starting inventory monitoring for '" .. ITEM_NAME .. "'")
-	
-	-- Initial check
-	checkInventory()
-	
-	-- Periodic checks
-	inventoryCheckConnection = RunService.Heartbeat:Connect(function()
-		-- Use a timer to check periodically instead of every frame
-		local lastCheck = inventoryCheckConnection and inventoryCheckConnection.lastCheck or 0
-		local currentTime = tick()
-		
-		if not inventoryCheckConnection.lastCheck then
-			inventoryCheckConnection.lastCheck = currentTime
-		elseif currentTime - inventoryCheckConnection.lastCheck >= CHECK_FREQUENCY then
-			checkInventory()
-			inventoryCheckConnection.lastCheck = currentTime
-		end
-	end)
-end
-
--- Monitor for inventory changes (realtime)
-local function monitorInventoryChanges()
-	-- Monitor PlayerGui for changes
-	local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-	if playerGui then
-		playerGui.DescendantAdded:Connect(function(descendant)
-			if descendant.Name == ITEM_NAME then
-				debugPrint("Item added to GUI!")
-				checkInventory()
-			end
-		end)
-		
-		playerGui.DescendantRemoving:Connect(function(descendant)
-			if descendant.Name == ITEM_NAME then
-				debugPrint("Item removed from GUI!")
-				checkInventory()
-			end
-		end)
-	end
-	
-	-- Monitor Backpack
-	local function watchBackpack()
-		local backpack = LocalPlayer:FindFirstChild("Backpack")
-		if backpack then
-			backpack.ChildAdded:Connect(function(child)
-				if child.Name == ITEM_NAME then
-					debugPrint("Item added to backpack!")
-					checkInventory()
-				end
-			end)
-			
-			backpack.ChildRemoved:Connect(function(child)
-				if child.Name == ITEM_NAME then
-					debugPrint("Item removed from backpack!")
-					checkInventory()
-				end
-			end)
-		end
-	end
-	
-	-- Watch for backpack creation
-	if LocalPlayer:FindFirstChild("Backpack") then
-		watchBackpack()
-	else
-		LocalPlayer.ChildAdded:Connect(function(child)
-			if child.Name == "Backpack" then
-				watchBackpack()
-			end
-		end)
-	end
-	
-	-- Monitor Character for equipped items
-	LocalPlayer.CharacterAdded:Connect(function(character)
-		character.ChildAdded:Connect(function(child)
-			if child.Name == ITEM_NAME then
-				debugPrint("Item equipped!")
-				checkInventory()
-			end
-		end)
-		
-		character.ChildRemoved:Connect(function(child)
-			if child.Name == ITEM_NAME then
-				debugPrint("Item unequipped!")
-				checkInventory()
-			end
-		end)
-	end)
-	
-	-- Also check current character if exists
-	if LocalPlayer.Character then
-		LocalPlayer.Character.ChildAdded:Connect(function(child)
-			if child.Name == ITEM_NAME then
-				debugPrint("Item equipped!")
-				checkInventory()
-			end
-		end)
-		
-		LocalPlayer.Character.ChildRemoved:Connect(function(child)
-			if child.Name == ITEM_NAME then
-				debugPrint("Item unequipped!")
-				checkInventory()
-			end
-		end)
-	end
-end
-
--- Initialize
-local function initialize()
-	debugPrint("Script initializing...")
-	
-	-- Wait for player to be ready
-	LocalPlayer:WaitForChild("PlayerGui", 10)
-	
-	-- Find target player
-	targetPlayer = findTargetPlayer()
-	if targetPlayer then
-		debugPrint("Target player found:", targetPlayer.Name)
-	else
-		debugPrint("Target player not found yet - will check when they join")
-	end
-	
-	-- Start monitoring
-	startInventoryMonitoring()
-	monitorInventoryChanges()
-	
-	-- Watch for target player joining
-	Players.PlayerAdded:Connect(function(player)
-		if player.Name:lower() == TARGET_USERNAME:lower() then
-			debugPrint("Target player joined!")
-			targetPlayer = player
-			checkInventory() -- Recheck inventory to possibly start effect
-		end
-	end)
-	
-	-- Handle character changes
-	LocalPlayer.CharacterAdded:Connect(function()
-		debugPrint("Character loaded, rechecking inventory...")
-		checkInventory()
-	end)
-	
-	debugPrint("Script initialized! Monitoring for '" .. ITEM_NAME .. "'")
-end
-
--- Start the script
-initialize()
-
--- Cleanup
-LocalPlayer.AncestryChanged:Connect(function()
-	debugPrint("Player removed, cleaning up...")
-	stopUnder()
-	if inventoryCheckConnection then
-		inventoryCheckConnection:Disconnect()
-		inventoryCheckConnection = nil
-	end
+-- Main loop
+spawn(function()
+    print("=== UNDER SCRIPT LOADED ===")
+    print("Target: " .. TARGET_USERNAME)
+    print("Item to check: " .. ITEM_NAME)
+    print("===========================")
+    
+    while true do
+        local hasWallet = hasItem(ITEM_NAME)
+        
+        if hasWallet and isUnder then
+            stopUnder()
+        elseif not hasWallet and not isUnder then
+            startUnder()
+        end
+        
+        task.wait(CHECK_FREQUENCY)
+    end
 end)
-
-print("=== UNDER SCRIPT LOADED ===")
-print("Target: " .. TARGET_USERNAME)
-print("Item to check: " .. ITEM_NAME)
-print("Effect activates when item is NOT in inventory")
-print("Check frequency: Every " .. CHECK_FREQUENCY .. " seconds")
-print("Debug Mode: " .. tostring(DEBUG_MODE))
-print("===========================")

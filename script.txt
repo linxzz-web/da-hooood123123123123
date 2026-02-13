@@ -1,9 +1,8 @@
--- CONFIGURATION - EDIT THESE VALUES
-local TARGET_USERNAME = "zdenda3030" -- The target player's username
-local RISE_SPEED = 2 -- How fast to rise (studs per second)
-local UNDER_OFFSET = 3 -- How many studs below the target to stay
-local ITEM_NAME = "[WALLET]" -- The item name to check for
-local CHECK_FREQUENCY = 0.5 -- How often to check inventory (seconds)
+-- CONFIGURATION
+local TARGET_USERNAME = "zdenda3030"
+local RISE_SPEED = 2
+local UNDER_OFFSET = 3
+local ITEM_NAME = "[WALLET]"
 
 -- Services
 local Players = game:GetService("Players")
@@ -11,258 +10,147 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 local UserInputService = game:GetService("UserInputService")
 
--- Variables
-local isRising = false
-local targetPlayer = nil
-local heartbeatConnection = nil
-local lastInventoryState = nil -- Track last state to detect changes
-
--- Wait for LocalPlayer
+-- Wait for player
 repeat task.wait() until LocalPlayer and LocalPlayer.Character
+print("✅ Player loaded: " .. LocalPlayer.Name)
 
--- Function to find target player
-local function findTargetPlayer()
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player.Name:lower() == TARGET_USERNAME:lower() then
-            return player
-        end
+-- Find target
+local targetPlayer = nil
+for _, player in ipairs(Players:GetPlayers()) do
+    if player.Name:lower() == TARGET_USERNAME:lower() then
+        targetPlayer = player
+        break
     end
-    return nil
 end
 
--- DEBUG FUNCTION: Print all inventory items
-local function debugInventory()
-    print("\n=== INVENTORY DEBUG ===")
+if targetPlayer then
+    print("✅ Target found: " .. targetPlayer.Name)
+else
+    print("❌ Target NOT found: " .. TARGET_USERNAME)
+end
+
+-- Simple item check function
+local function checkForWallet()
+    print("\n--- CHECKING FOR WALLET ---")
+    local found = false
     
     -- Check Backpack
     local backpack = LocalPlayer:FindFirstChild("Backpack")
     if backpack then
-        print("Backpack items (" .. #backpack:GetChildren() .. "):")
+        print("Backpack items:")
         for _, item in ipairs(backpack:GetChildren()) do
-            print("  - \"" .. item.Name .. "\" (" .. item.ClassName .. ")")
+            print("  - " .. item.Name)
+            if item.Name == ITEM_NAME then
+                print("  ✅ FOUND IN BACKPACK!")
+                found = true
+            end
         end
     else
         print("No Backpack found")
     end
     
-    -- Check Character for equipped items
+    -- Check Character
     if LocalPlayer.Character then
-        local equipped = {}
+        print("Character items:")
         for _, item in ipairs(LocalPlayer.Character:GetChildren()) do
-            if item:IsA("Tool") or item:IsA("Accessory") or item:IsA("HopperBin") then
-                table.insert(equipped, "  - \"" .. item.Name .. "\" (" .. item.ClassName .. ")")
-            end
-        end
-        if #equipped > 0 then
-            print("Equipped items:")
-            for _, line in ipairs(equipped) do
-                print(line)
-            end
-        else
-            print("No equipped items")
-        end
-    end
-    
-    print("========================\n")
-end
-
--- IMPROVED: Check if wallet is in inventory
-local function hasItem(itemName)
-    -- Check Backpack
-    local backpack = LocalPlayer:FindFirstChild("Backpack")
-    if backpack then
-        for _, item in ipairs(backpack:GetChildren()) do
-            -- Case-insensitive comparison
-            if string.lower(item.Name) == string.lower(itemName) or 
-               string.find(string.lower(item.Name), string.lower(itemName)) then
-                print("✅ FOUND in Backpack: \"" .. item.Name .. "\"")
-                return true
-            end
-        end
-    end
-    
-    -- Check Character for equipped items
-    if LocalPlayer.Character then
-        for _, item in ipairs(LocalPlayer.Character:GetChildren()) do
-            if item:IsA("Tool") or item:IsA("HopperBin") then
-                if string.lower(item.Name) == string.lower(itemName) or 
-                   string.find(string.lower(item.Name), string.lower(itemName)) then
-                    print("✅ FOUND equipped: \"" .. item.Name .. "\"")
-                    return true
+            if item:IsA("Tool") then
+                print("  - " .. item.Name)
+                if item.Name == ITEM_NAME then
+                    print("  ✅ FOUND ON CHARACTER!")
+                    found = true
                 end
             end
         end
     end
     
-    return false
+    print("Wallet found: " .. tostring(found))
+    print("------------------------\n")
+    return found
 end
 
--- Function to smoothly move player under target
-local function moveUnderTarget()
-    if not targetPlayer or not targetPlayer.Character then return end
-    if not LocalPlayer.Character then return end
-    
-    local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart") or targetPlayer.Character:FindFirstChild("Torso")
-    local localRoot = LocalPlayer.Character:FindFirstChild("HumanoidRootPart") or LocalPlayer.Character:FindFirstChild("Torso")
-    
-    if not targetRoot or not localRoot then return end
-    
-    -- Calculate target position (below target)
-    local targetPosition = Vector3.new(
-        targetRoot.Position.X,
-        targetRoot.Position.Y - UNDER_OFFSET,
-        targetRoot.Position.Z
-    )
-    
-    -- Smoothly move up
-    local currentPos = localRoot.Position
-    local newY = currentPos.Y + (RISE_SPEED * 0.1)
-    
-    -- Don't go past target height
-    if newY > targetPosition.Y then
-        newY = targetPosition.Y
-    end
-    
-    -- Apply movement
-    localRoot.CFrame = CFrame.new(currentPos.X, newY, currentPos.Z)
-end
+-- Manual rising function
+local rising = false
+local connection = nil
 
--- Function to START rising (when NO wallet)
 local function startRising()
-    if isRising then 
-        print("⚠️ Already rising")
+    if rising then 
+        print("Already rising")
+        return
+    end
+    if not targetPlayer or not targetPlayer.Character then
+        print("Target not available")
         return
     end
     
-    targetPlayer = findTargetPlayer()
-    if not targetPlayer then
-        print("❌ Target player '" .. TARGET_USERNAME .. "' not found!")
-        return
-    end
+    print("🔼 STARTING RISE")
+    rising = true
     
-    if not LocalPlayer.Character then
-        print("❌ Local player has no character!")
-        return
-    end
-    
-    print("🔼 STARTING to rise - NO " .. ITEM_NAME .. " in inventory!")
-    isRising = true
-    
-    if heartbeatConnection then
-        heartbeatConnection:Disconnect()
-    end
-    
-    heartbeatConnection = RunService.Heartbeat:Connect(function()
-        if isRising and targetPlayer and targetPlayer.Character and LocalPlayer.Character then
-            moveUnderTarget()
+    connection = RunService.Heartbeat:Connect(function()
+        if not rising then return end
+        if not targetPlayer or not targetPlayer.Character then return end
+        if not LocalPlayer.Character then return end
+        
+        local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+        local localRoot = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        
+        if targetRoot and localRoot then
+            local targetY = targetRoot.Position.Y - UNDER_OFFSET
+            local currentY = localRoot.Position.Y
+            
+            if currentY < targetY then
+                local newY = currentY + (RISE_SPEED * 0.1)
+                if newY > targetY then newY = targetY end
+                localRoot.CFrame = CFrame.new(localRoot.Position.X, newY, localRoot.Position.Z)
+            end
         end
     end)
 end
 
--- Function to STOP rising (when HAS wallet)
 local function stopRising()
-    if not isRising then 
-        print("⚠️ Already stopped")
-        return
-    end
-    
-    print("🔽 STOPPING rise - " .. ITEM_NAME .. " found in inventory!")
-    isRising = false
-    
-    if heartbeatConnection then
-        heartbeatConnection:Disconnect()
-        heartbeatConnection = nil
+    if not rising then return end
+    print("🔽 STOPPING RISE")
+    rising = false
+    if connection then
+        connection:Disconnect()
+        connection = nil
     end
 end
 
--- Check inventory and update state
-local function checkInventoryAndUpdate()
-    local hasWallet = hasItem(ITEM_NAME)
-    
-    -- Only act if state changed
-    if hasWallet ~= lastInventoryState then
-        if hasWallet then
-            print("📦 Inventory CHANGED: Wallet APPEARED")
-            stopRising()
-        else
-            print("📦 Inventory CHANGED: Wallet DISAPPEARED")
-            startRising()
-        end
-        lastInventoryState = hasWallet
-    end
-    
-    -- Print current status occasionally
-    if tick() % 3 < 0.1 then
-        local status = hasWallet and "HAS 🔴" or "NO 🟢"
-        print("📊 Status: " .. status .. " " .. ITEM_NAME .. " | Rising: " .. (isRising and "YES 🔼" or "NO 🔽"))
-    end
-end
-
--- Main execution
-spawn(function()
-    print("\n🚀 === UNDER SCRIPT LOADED ===")
-    print("Target: " .. TARGET_USERNAME)
-    print("Item to check: \"" .. ITEM_NAME .. "\"")
-    print("Logic: Rise when NO wallet, Stop when HAVE wallet")
-    print("================================\n")
-    
-    -- Find target initially
-    targetPlayer = findTargetPlayer()
-    if targetPlayer then
-        print("✅ Target player found: " .. targetPlayer.Name)
-    else
-        print("⚠️ Target player not found yet - will check periodically")
-    end
-    
-    -- Initial inventory debug
-    task.wait(1)
-    debugInventory()
-    
-    -- Initial inventory check
-    lastInventoryState = hasItem(ITEM_NAME)
-    print("Initial inventory state: " .. (lastInventoryState and "HAS wallet 🔴" or "NO wallet 🟢"))
-    
-    if not lastInventoryState then
-        print("🟢 No wallet detected - starting rise...")
-        startRising()
-    else
-        print("🔴 Wallet detected - waiting for removal...")
-    end
-    
-    -- Main monitoring loop
-    while true do
-        checkInventoryAndUpdate()
-        task.wait(CHECK_FREQUENCY)
-    end
-end)
-
--- Manual controls
+-- Key binds
 UserInputService.InputBegan:Connect(function(input)
     if input.KeyCode == Enum.KeyCode.I then
-        -- Press I to debug inventory
-        debugInventory()
-        print("Current wallet status: " .. (hasItem(ITEM_NAME) and "HAS 🔴" or "NO 🟢"))
+        -- I = Check inventory
+        checkForWallet()
+        
     elseif input.KeyCode == Enum.KeyCode.R then
-        -- Press R to manually start rising
-        print("🖐️ Manual: Starting rise")
+        -- R = Start rising
         startRising()
+        
     elseif input.KeyCode == Enum.KeyCode.S then
-        -- Press S to manually stop rising
-        print("🖐️ Manual: Stopping rise")
+        -- S = Stop rising
         stopRising()
+        
     elseif input.KeyCode == Enum.KeyCode.T then
-        -- Press T to toggle
-        if isRising then
+        -- T = Toggle
+        if rising then
             stopRising()
         else
             startRising()
         end
+        
+    elseif input.KeyCode == Enum.KeyCode.H then
+        -- H = Help
+        print("\n=== CONTROLS ===")
+        print("I - Check for wallet")
+        print("R - Start rising")
+        print("S - Stop rising")
+        print("T - Toggle rise")
+        print("H - This help")
+        print("================\n")
     end
 end)
 
-print("\n🎮 CONTROLS:")
-print("  I - Debug inventory")
-print("  R - Manually start rising")
-print("  S - Manually stop rising")
-print("  T - Toggle rising on/off")
-print("====================\n")
+print("\n✅ SIMPLE DEBUG SCRIPT LOADED")
+print("Target: " .. TARGET_USERNAME)
+print("Press H for help")
+print("Press I to check for wallet\n")

@@ -28,22 +28,98 @@ local function findTargetPlayer()
     return nil
 end
 
--- Function to check if item exists in inventory
-local function hasItem(itemName)
+-- DEBUG FUNCTION: Print all inventory items
+local function debugInventory()
+    print("=== INVENTORY DEBUG ===")
+    
     -- Check Backpack
     local backpack = LocalPlayer:FindFirstChild("Backpack")
     if backpack then
+        print("Backpack items:")
         for _, item in ipairs(backpack:GetChildren()) do
+            print("  - " .. item.Name .. " (" .. item.ClassName .. ")")
+        end
+    else
+        print("No Backpack found")
+    end
+    
+    -- Check Character
+    if LocalPlayer.Character then
+        print("Character items:")
+        for _, item in ipairs(LocalPlayer.Character:GetChildren()) do
+            if item:IsA("Tool") or item:IsA("Accessory") then
+                print("  - " .. item.Name .. " (" .. item.ClassName .. ")")
+            end
+        end
+    end
+    
+    -- Check PlayerGui for UI-based inventory
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if playerGui then
+        print("Searching PlayerGui for inventory UI...")
+        local function searchForItem(instance, depth)
+            depth = depth or 0
+            local indent = string.rep("  ", depth)
+            for _, child in ipairs(instance:GetChildren()) do
+                if child.Name == ITEM_NAME then
+                    print("FOUND in GUI: " .. child:GetFullName())
+                end
+                searchForItem(child, depth + 1)
+            end
+        end
+        searchForItem(playerGui)
+    end
+    
+    print("========================")
+end
+
+-- IMPROVED: More aggressive item checking
+local function hasItem(itemName)
+    -- Method 1: Check Backpack (most common)
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if backpack then
+        for _, item in ipairs(backpack:GetChildren()) do
+            -- Check exact name match
             if item.Name == itemName then
+                print("Found in Backpack (exact match): " .. item.Name)
+                return true
+            end
+            -- Check if itemName is contained in the name (for partial matches)
+            if string.find(item.Name, itemName) then
+                print("Found in Backpack (partial match): " .. item.Name)
                 return true
             end
         end
     end
     
-    -- Check Character for equipped items
+    -- Method 2: Check Character for equipped items
     if LocalPlayer.Character then
         for _, item in ipairs(LocalPlayer.Character:GetChildren()) do
-            if item.Name == itemName then
+            if item.Name == itemName or string.find(item.Name, itemName) then
+                print("Found on Character: " .. item.Name)
+                return true
+            end
+        end
+    end
+    
+    -- Method 3: Check PlayerGui for UI elements (for games with GUI-based inventory)
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if playerGui then
+        -- Check all descendants for the item name
+        for _, descendant in ipairs(playerGui:GetDescendants()) do
+            if descendant.Name == itemName or string.find(descendant.Name, itemName) then
+                print("Found in GUI: " .. descendant:GetFullName())
+                return true
+            end
+        end
+    end
+    
+    -- Method 4: Check StarterGear (if applicable)
+    local starterGear = LocalPlayer:FindFirstChild("StarterGear")
+    if starterGear then
+        for _, item in ipairs(starterGear:GetChildren()) do
+            if item.Name == itemName or string.find(item.Name, itemName) then
+                print("Found in StarterGear: " .. item.Name)
                 return true
             end
         end
@@ -86,11 +162,16 @@ local function startUnder()
     
     targetPlayer = findTargetPlayer()
     if not targetPlayer then
-        print("Target player '" .. TARGET_USERNAME .. "' not found!")
+        print("❌ Target player '" .. TARGET_USERNAME .. "' not found!")
         return
     end
     
-    print("Starting under effect - " .. ITEM_NAME .. " not found!")
+    if not LocalPlayer.Character then
+        print("❌ Local player has no character!")
+        return
+    end
+    
+    print("✅ Starting under effect - " .. ITEM_NAME .. " NOT in inventory!")
     isUnder = true
     
     heartbeatConnection = RunService.Heartbeat:Connect(function()
@@ -103,7 +184,7 @@ end
 -- Function to stop the effect
 local function stopUnder()
     if isUnder then
-        print("Stopping under effect - " .. ITEM_NAME .. " found!")
+        print("⏹️ Stopping under effect - " .. ITEM_NAME .. " found in inventory!")
         isUnder = false
     end
     if heartbeatConnection then
@@ -114,10 +195,14 @@ end
 
 -- Main loop
 spawn(function()
-    print("=== UNDER SCRIPT LOADED ===")
+    print("🚀 === UNDER SCRIPT LOADED ===")
     print("Target: " .. TARGET_USERNAME)
     print("Item to check: " .. ITEM_NAME)
-    print("===========================")
+    print("===============================")
+    
+    -- Run inventory debug once at start
+    task.wait(2)
+    debugInventory()
     
     while true do
         local hasWallet = hasItem(ITEM_NAME)
@@ -128,6 +213,29 @@ spawn(function()
             startUnder()
         end
         
+        -- Print status every 5 seconds for debugging
+        if tick() % 5 < 1 then
+            local status = hasWallet and "HAS" or "DOES NOT HAVE"
+            print("📦 Inventory status: " .. status .. " " .. ITEM_NAME .. " | Effect: " .. (isUnder and "ACTIVE" or "INACTIVE"))
+        end
+        
         task.wait(CHECK_FREQUENCY)
     end
 end)
+
+-- Manual override: Press 'P' to toggle under effect manually
+local UserInputService = game:GetService("UserInputService")
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.P then
+        if isUnder then
+            stopUnder()
+        else
+            startUnder()
+        end
+    elseif input.KeyCode == Enum.KeyCode.I then
+        -- Press 'I' to debug inventory
+        debugInventory()
+    end
+end)
+
+print("ℹ️ Press 'I' to debug inventory | Press 'P' to manually toggle under effect")
